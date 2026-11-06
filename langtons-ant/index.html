@@ -5,30 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Langton's Ant</title>
 <style>
-  :root { --bg:#f4f5f7; --panel:#fff; --text:#1d2330; --muted:#667085; --border:#d0d5dd; --accent:#3b6ef5; }
+  /* Layout: control panel beside a scrollable board; stacks on narrow screens */
+  :root { --bg:#f2f4f3; --panel:#ffffff; --text:#1b2421; --muted:#5f6b67; --border:#cfd6d3; --accent:#2f6fd6; --on-accent:#ffffff; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#121615; --panel:#1b211f; --text:#e6ebe9; --muted:#97a39f; --border:#323b38; --accent:#6c9cf0; --on-accent:#0d1220; color-scheme:dark; } }
+  :root[data-theme="dark"] { --bg:#121615; --panel:#1b211f; --text:#e6ebe9; --muted:#97a39f; --border:#323b38; --accent:#6c9cf0; --on-accent:#0d1220; color-scheme:dark; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
-  header { padding:14px 20px; border-bottom:1px solid var(--border); background:var(--panel); }
+  header { padding-block:14px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); border-bottom:1px solid var(--border); background:var(--panel); }
   header h1 { margin:0; font-size:20px; }
   header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
-  main { display:flex; gap:16px; padding:16px; flex-wrap:wrap; align-items:flex-start; }
+  main { display:flex; gap:16px; padding-block:16px; padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); flex-wrap:wrap; align-items:flex-start; }
   aside { width:280px; flex:0 0 280px; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; }
   section { margin-bottom:16px; }
   section h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px; }
   label { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:14px; margin:6px 0; }
-  input[type=number] { width:80px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; }
+  input[type=number] { width:80px; padding:4px 6px; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; }
   input[type=range] { width:100%; }
   input[type=color] { width:44px; height:28px; border:1px solid var(--border); border-radius:6px; padding:0; background:none; cursor:pointer; }
-  select { padding:4px 6px; border:1px solid var(--border); border-radius:6px; }
+  select { padding:4px 6px; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; }
   .row { display:flex; gap:6px; flex-wrap:wrap; }
-  button { flex:1; padding:7px 10px; border:1px solid var(--border); border-radius:6px; background:#fff; cursor:pointer; font-size:14px; }
+  button { flex:1; padding:7px 10px; border:1px solid var(--border); border-radius:6px; background:var(--panel); color:var(--text); cursor:pointer; font-size:14px; }
   button:hover { border-color:var(--accent); }
-  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
   button.active { outline:2px solid var(--accent); outline-offset:-2px; font-weight:600; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   button:disabled { opacity:.5; cursor:not-allowed; }
   .stats { font-variant-numeric: tabular-nums; font-size:14px; }
   .hint { font-size:12px; color:var(--muted); margin:6px 0 0; }
   .board-wrap { flex:1; min-width:0; overflow:auto; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px; }
+  @media (max-width: 640px) { aside { flex:1 1 100%; width:100%; } }
   canvas { display:block; image-rendering:pixelated; cursor:crosshair; touch-action:none; }
 </style>
 </head>
