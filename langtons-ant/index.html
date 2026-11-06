@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Langton's Ant</title>
+<style>
+  :root { --bg:#f4f5f7; --panel:#fff; --text:#1d2330; --muted:#667085; --border:#d0d5dd; --accent:#3b6ef5; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:14px 20px; border-bottom:1px solid var(--border); background:var(--panel); }
+  header h1 { margin:0; font-size:20px; }
+  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  main { display:flex; gap:16px; padding:16px; flex-wrap:wrap; align-items:flex-start; }
+  aside { width:280px; flex:0 0 280px; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; }
+  section { margin-bottom:16px; }
+  section h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px; }
+  label { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:14px; margin:6px 0; }
+  input[type=number] { width:80px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; }
+  input[type=range] { width:100%; }
+  input[type=color] { width:44px; height:28px; border:1px solid var(--border); border-radius:6px; padding:0; background:none; cursor:pointer; }
+  select { padding:4px 6px; border:1px solid var(--border); border-radius:6px; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; }
+  button { flex:1; padding:7px 10px; border:1px solid var(--border); border-radius:6px; background:#fff; cursor:pointer; font-size:14px; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.active { outline:2px solid var(--accent); outline-offset:-2px; font-weight:600; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .stats { font-variant-numeric: tabular-nums; font-size:14px; }
+  .hint { font-size:12px; color:var(--muted); margin:6px 0 0; }
+  .board-wrap { flex:1; min-width:0; overflow:auto; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px; }
+  canvas { display:block; image-rendering:pixelated; cursor:crosshair; touch-action:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Langton's Ant</h1>
+  <p>On color A: turn right, flip to color B, move. On color B: turn left, flip to color A, move.</p>
+</header>
+<main>
+  <aside>
+    <section>
+      <h2>Board</h2>
+      <label>Columns <input id="cols" type="number" min="5" max="400" value="80"></label>
+      <label>Rows <input id="rows" type="number" min="5" max="400" value="60"></label>
+      <label>Cell size (px) <input id="cell" type="number" min="2" max="40" value="8"></label>
+      <label>Edges
+        <select id="edges"><option value="wrap">Wrap around</option><option value="stop">Stop at edge</option></select>
+      </label>
+      <div class="row"><button id="apply">Apply size</button></div>
+    </section>
+
+    <section>
+      <h2>Setup (click on the board)</h2>
+      <div class="row">
+        <button id="modeAnt" class="active">Place ant</button>
+        <button id="modePaint">Paint cells</button>
+      </div>
+      <label>Ant direction
+        <select id="dir"><option value="0">Up ↑</option><option value="1">Right →</option><option value="2">Down ↓</option><option value="3">Left ←</option></select>
+      </label>
+      <div class="row"><button id="clear">Clear board</button><button id="random">Random cells</button></div>
+      <p class="hint">Paint mode: click/drag toggles cells between color A and B.</p>
+    </section>
+
+    <section>
+      <h2>Colors</h2>
+      <label>Color A (turn right) <input id="colorA" type="color" value="#fdf6e3"></label>
+      <label>Color B (turn left) <input id="colorB" type="color" value="#2a9d8f"></label>
+      <label>Ant <input id="colorAnt" type="color" value="#e63946"></label>
+    </section>
+
+    <section>
+      <h2>Speed</h2>
+      <label>Steps / second <span id="speedVal"></span></label>
+      <input id="speed" type="range" min="0" max="100" value="45">
+    </section>
+
+    <section>
+      <h2>Run</h2>
+      <div class="row">
+        <button id="play" class="primary">Start</button>
+        <button id="step">Step</button>
+        <button id="reset">Reset</button>
+      </div>
+      <p class="stats">Steps: <b id="steps">0</b> &nbsp; Ant: <span id="pos">–</span></p>
+      <p class="hint">Reset restores the board and ant as they were when you pressed Start.</p>
+    </section>
+  </aside>
+
+  <div class="board-wrap"><canvas id="board"></canvas></div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const canvas = $('board'), ctx = canvas.getContext('2d');
+  const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0]; // up, right, down, left
+
+  let cols, rows, cell, grid;
+  let ant = null;            // {x, y, d}
+  let steps = 0, running = false, halted = false;
+  let mode = 'ant', snapshot = null;
+  let lastTime = 0, carry = 0;
+
+  // Speed slider: exponential mapping 1 .. 20000 steps/sec
+  const speedOf = v => Math.round(Math.pow(20000, v / 100));
+  const updateSpeedLabel = () => $('speedVal').textContent = speedOf(+$('speed').value).toLocaleString();
+
+  function clampInput(el) {
+    const v = Math.max(+el.min, Math.min(+el.max, Math.round(+el.value || +el.min)));
+    el.value = v; return v;
+  }
+
+  function init(keepAnt) {
+    cols = clampInput($('cols')); rows = clampInput($('rows')); cell = clampInput($('cell'));
+    grid = new Uint8Array(cols * rows);
+    canvas.width = cols * cell; canvas.height = rows * cell;
+    if (!keepAnt || !ant || ant.x >= cols || ant.y >= rows)
+      ant = { x: cols >> 1, y: rows >> 1, d: +$('dir').value };
+    steps = 0; halted = false; snapshot = null;
+    drawAll(); updateStats();
+  }
+
+  function drawCell(x, y) {
+    ctx.fillStyle = grid[y * cols + x] ? $('colorB').value : $('colorA').value;
+    ctx.fillRect(x * cell, y * cell, cell, cell);
+  }
+
+  function drawAnt() {
+    if (!ant) return;
+    const cx = ant.x * cell + cell / 2, cy = ant.y * cell + cell / 2, r = cell / 2;
+    ctx.fillStyle = $('colorAnt').value;
+    if (cell < 6) { ctx.fillRect(ant.x * cell, ant.y * cell, cell, cell); return; }
+    // triangle pointing in direction
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(ant.d * Math.PI / 2);
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.9); ctx.lineTo(r * 0.8, r * 0.8); ctx.lineTo(-r * 0.8, r * 0.8); ctx.closePath();
+    ctx.fill(); ctx.restore();
+  }
+
+  function drawAll() {
+    const a = $('colorA').value, b = $('colorB').value;
+    ctx.fillStyle = a; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = b;
+    for (let y = 0; y < rows; y++)
+      for (let x = 0; x < cols; x++)
+        if (grid[y * cols + x]) ctx.fillRect(x * cell, y * cell, cell, cell);
+    drawAnt();
+  }
+
+  // One step of the ant. Returns false if halted.
+  function stepAnt() {
+    if (halted) return false;
+    const i = ant.y * cols + ant.x;
+    ant.d = grid[i] ? (ant.d + 3) % 4 : (ant.d + 1) % 4; // B: left, A: right
+    grid[i] ^= 1;
+    const px = ant.x, py = ant.y;
+    let nx = ant.x + DX[ant.d], ny = ant.y + DY[ant.d];
+    if ($('edges').value === 'wrap') {
+      nx = (nx + cols) % cols; ny = (ny + rows) % rows;
+    } else if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) {
+      halted = true; steps++; drawCell(px, py); drawAnt(); return false;
+    }
+    ant.x = nx; ant.y = ny; steps++;
+    drawCell(px, py);
+    return true;
+  }
+
+  function updateStats() {
+    $('steps').textContent = steps.toLocaleString();
+    $('pos').textContent = ant ? `(${ant.x}, ${ant.y}) ${'↑→↓←'[ant.d]}` + (halted ? ' — hit edge' : '') : '–';
+  }
+
+  function takeSnapshot() {
+    if (!snapshot) snapshot = { grid: grid.slice(), ant: { ...ant } };
+  }
+
+  function loop(t) {
+    if (!running) return;
+    const dt = Math.min(0.1, (t - lastTime) / 1000); lastTime = t;
+    carry += speedOf(+$('speed').value) * dt;
+    let n = Math.floor(carry); carry -= n;
+    while (n-- > 0) if (!stepAnt()) { setRunning(false); break; }
+    drawAnt(); updateStats();
+    if (running) requestAnimationFrame(loop);
+  }
+
+  function setRunning(on) {
+    if (on && halted) return;
+    running = on;
+    $('play').textContent = on ? 'Pause' : 'Start';
+    if (on) { takeSnapshot(); lastTime = performance.now(); carry = 0; requestAnimationFrame(loop); }
+  }
+
+  // --- Board interaction ---
+  let painting = false, paintValue = 1;
+  function cellAt(e) {
+    const r = canvas.getBoundingClientRect();
+    const x = Math.floor((e.clientX - r.left) * (canvas.width / r.width) / cell);
+    const y = Math.floor((e.clientY - r.top) * (canvas.height / r.height) / cell);
+    return (x >= 0 && y >= 0 && x < cols && y < rows) ? { x, y } : null;
+  }
+  canvas.addEventListener('pointerdown', e => {
+    const c = cellAt(e); if (!c) return;
+    if (mode === 'ant') {
+      const old = ant; ant = { x: c.x, y: c.y, d: +$('dir').value };
+      halted = false; snapshot = null;
+      if (old) drawCell(old.x, old.y);
+      drawAnt(); updateStats();
+    } else {
+      painting = true; canvas.setPointerCapture(e.pointerId);
+      paintValue = grid[c.y * cols + c.x] ? 0 : 1;
+      paint(c);
+    }
+  });
+  canvas.addEventListener('pointermove', e => { if (painting) { const c = cellAt(e); if (c) paint(c); } });
+  canvas.addEventListener('pointerup', () => painting = false);
+  canvas.addEventListener('pointercancel', () => painting = false);
+  function paint(c) {
+    grid[c.y * cols + c.x] = paintValue; snapshot = null;
+    drawCell(c.x, c.y);
+    if (ant && ant.x === c.x && ant.y === c.y) drawAnt();
+  }
+
+  // --- Controls ---
+  function setMode(m) {
+    mode = m;
+    $('modeAnt').classList.toggle('active', m === 'ant');
+    $('modePaint').classList.toggle('active', m === 'paint');
+  }
+  $('modeAnt').onclick = () => setMode('ant');
+  $('modePaint').onclick = () => setMode('paint');
+  $('dir').onchange = () => { if (ant && !running) { ant.d = +$('dir').value; snapshot = null; drawCell(ant.x, ant.y); drawAnt(); updateStats(); } };
+  $('apply').onclick = () => { setRunning(false); init(true); };
+  $('clear').onclick = () => { setRunning(false); grid.fill(0); steps = 0; halted = false; snapshot = null; drawAll(); updateStats(); };
+  $('random').onclick = () => {
+    setRunning(false);
+    for (let i = 0; i < grid.length; i++) grid[i] = Math.random() < 0.3 ? 1 : 0;
+    steps = 0; halted = false; snapshot = null; drawAll(); updateStats();
+  };
+  ['colorA', 'colorB', 'colorAnt'].forEach(id => $(id).addEventListener('input', drawAll));
+  $('speed').addEventListener('input', updateSpeedLabel);
+  $('play').onclick = () => setRunning(!running);
+  $('step').onclick = () => { setRunning(false); takeSnapshot(); stepAnt(); drawAnt(); updateStats(); };
+  $('reset').onclick = () => {
+    setRunning(false);
+    if (snapshot) { grid = snapshot.grid.slice(); ant = { ...snapshot.ant }; $('dir').value = ant.d; }
+    steps = 0; halted = false; drawAll(); updateStats();
+  };
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    if (e.code === 'Space') { e.preventDefault(); setRunning(!running); }
+  });
+
+  updateSpeedLabel();
+  init(false);
+})();
+</script>
+</body>
+</html>
